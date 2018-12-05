@@ -59,13 +59,11 @@ upload-webrev.py -d -u --overwrite-last --upload-url thomas@cr.openjdk.java.net:
 ## Basics
 
 This tool knows two modes:
-- Webrev Mode (the default): a webrev is generated into the export directory.
+- Webrev Mode (default): a webrev is generated into the export directory.
     - Webrevs are numbered (webrev_<n>, webrev_<n+1>). Each time the script is run a new webrev is created.
-        - Exception: in "overwrite mode" `-o` or `--overwrite-last`, the highest-numbered webrev is overwritten instead 
-    - Script expects exactly one outgoing change in the mercurial repository
-    - "delta mode" (`-d` or `--delta`): two outgoing changes are expected, the first being the base change, the top
-     one the delta change. Two webrevs are created from these, a delta webrev and a complete webrev.
-- Patch Mode (`-p` resp. `--patch-mode`): Tool creates a simple patch in the export directory. Unlike webrevs, the patch is not numbered. This is usually faster than generating webrevs.
+    - Exactly one outgoing change is expected, for which the webrev is generated
+    - Delta mode (`-d` or `--delta`): two outgoing changes are expected, base and delta, for which two webrevs are generated.
+- Patch Mode (`-p` resp. `--patch-mode`): A simple patch is generated.
 
 ## Directory setup
 
