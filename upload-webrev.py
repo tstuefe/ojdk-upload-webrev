@@ -66,15 +66,15 @@ def user_confirm(question):
             answer = None
 
 
-def build_webrev_path(patch_export_dir, webrev_number):
-    return patch_export_dir + '/webrev.' + '{:02d}'.format(webrev_number)
+def build_webrev_path(patch_export_dir, webrev_num):
+    return patch_export_dir + '/webrev.' + '{:02d}'.format(webrev_num)
 
 
-def build_delta_webrev_path(patch_export_dir, webrev_number):
-    return patch_export_dir + '/webrev_delta.' + '{:02d}'.format(webrev_number)
+def build_delta_webrev_path(patch_export_dir, webrev_num):
+    return patch_export_dir + '/webrev_delta.' + '{:02d}'.format(webrev_num)
 
 
-def remove_directory(path: str) -> str:
+def remove_directory(path: str):
     shutil.rmtree(path)
     trc("Removed directory: " + path)
 
@@ -240,25 +240,28 @@ else:
     trc("Found {0} outgoing changes - oldest to youngest (tip):.".format(len(outgoing_changes)))
     print(outgoing_changes)
 
-# Patch-Mode, Webrev-Mode: need 1 outgoing changes.
+
+# Patch-Mode, Webrev-Mode: Need 1 outgoing change.
 # Delta-Webrev-Mode: need 2 outgoing changes.
 if args.patch_mode:
-    if len(outgoing_changes) != 1:
-        sys.exit('We expect exactly one outgoing change in patch mode.')
+    if len(outgoing_changes) > 1:
+        trc("Found multiple outgoing changes. Will only produce patch for the topmost one (" +
+            outgoing_changes[-1][1] + ")")
 else:
     if not args.delta_mode:
-        if len(outgoing_changes) != 1:
-            sys.exit('We expect exactly one outgoing change in webrev mode.')
+        if len(outgoing_changes) > 1:
+            trc("Found multiple outgoing changes. Will produce webrev for the topmost one (" +
+                outgoing_changes[-1][1] + ")")
     else:
         if len(outgoing_changes) != 2:
-            sys.exit('We expect exactly two outgoing changes for delta webrev mode.')
+            sys.exit('We expect exactly two outgoing changes in delta webrev mode.')
 
 # name of patch is generated from the first line of the mercurial change description of the outgoing change. In delta
 # mode, from the first line of the mercurial change description of the base change.
 # However, with option --patch-name the name can be overwritten from the command line.
 patch_name = args.patch_name
 if patch_name is None:
-    patch_name = outgoing_changes[0][1]
+    patch_name = outgoing_changes[-1][1]
 # Sanitize patch name
 patch_name = sanitize_patch_name(patch_name)
 trc("Patch name is " + patch_name)
@@ -310,11 +313,23 @@ else:
 
     # Now create the new webrev:
     if not args.delta_mode:
-        # In normal (non-delta) mode, we just run webrev.ksh without specifying any revision
-        run_command_and_return_stdout(["ksh", webrev_script_location, "-o", webrev_dir_path])
+        # In normal (non-delta) mode, we run webrev.ksh.
+        if len(outgoing_changes) == 1:
+            # if we have only one outgoing change, we just call webrev without revision
+            run_command_and_return_stdout(["ksh", webrev_script_location, "-o", webrev_dir_path])
+
+        else:
+            # if there are more than one outgoing change, we only want a webrev for the latest one, so
+            # we have to specify the revision with -r. Note however that webrev wants the *parent* revision
+            run_command_and_return_stdout(["ksh", webrev_script_location, "-o", webrev_dir_path, "-r",
+                                          str(outgoing_changes[-2][0])])
         trc("Created new webrev at " + webrev_dir_path + " - OK.")
+
     else:
         # In delta mode, we create two webrevs, one for the delta part, one for the full part.
+        # (Note: to keep coding simple here I insist on exactly two outgoing changes, see above)
+        if len(outgoing_changes) != 2:
+            sys.exit("Expecting exactly two outgoing changes.")
 
         # Delta part: use -r <rev> where revision is the parent, which in this case is the base part.
         run_command_and_return_stdout(["ksh", webrev_script_location, "-o", delta_webrev_dir_path, "-r",
