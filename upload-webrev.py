@@ -155,14 +155,17 @@ parser.add_argument("-d", "--delta", dest="delta_mode", default=False,
 
 parser.add_argument("-y", dest="yesyes", default=False, help="Autoconfirm (use with care).", action="store_true")
 
-parser.add_argument("-n", "--name", dest="patch_name", metavar="NAME",
+parser.add_argument("--name", dest="patch_name", metavar="NAME",
                     help="Name of patch directory (when omitted, name is generated from the mercurial change "
                          "description).")
 
-parser.add_argument("--overwrite-last", dest="overwrite_last_webrev", default=False,
+parser.add_argument("-o", "--overwrite-last", dest="overwrite_last_webrev", default=False,
                     help="[Webrev mode]: Overwrite the last webrev (\"webrev_<n>\") instead of creating a new one "
                          "(\"webrev_<n+1>\").",
                     action="store_true")
+
+parser.add_argument("-n", "--number", dest="webrev_number", default=-1, type=int,
+                    help="[Webrev mode]: Specify exactly the number of webrev to create. Will overwrite existing webrev of that number.")
 
 parser.add_argument("-u", "--upload", dest="upload", default=False, help="Upload to remote location (see --upload-url)",
                     action="store_true")
@@ -218,12 +221,14 @@ if ":" not in upload_url:
 
 # ---
 
-# sanity: -n,-d makes only sense in webrev mode
+# sanity: some args only sense in webrev mode
 if args.patch_mode:
     if args.overwrite_last_webrev:
         sys.exit("Option -o|--overwrite-last-webrev only supported in webrev mode.")
     if args.delta_mode:
         sys.exit("Option -d|--delta only supported in webrev mode.")
+    if args.webrev_number != -1:
+        sys.exit("Option -n|--number only supported in webrev mode.")
 
 # check that all changes are qrefresh'ed
 if run_command_and_return_stdout(['hg', 'diff']) != '':
@@ -298,6 +303,9 @@ else:
         webrev_number = webrev_number_last_valid
     else:
         webrev_number = webrev_number_first_invalid
+
+    if args.webrev_number != -1:
+        webrev_number = args.webrev_number
 
     webrev_dir_path = build_webrev_path(patch_directory, webrev_number)
     delta_webrev_dir_path = build_delta_webrev_path(patch_directory, webrev_number)
