@@ -85,6 +85,13 @@ def remove_prefix_from_string(s: str, prefix: str) -> str:
     return s
 
 
+# For a given revision, return parent revision
+def get_parent_rev_for_rev(rev: int) -> int:
+    s = run_command_and_return_stdout(["hg", "parent", "-r", str(rev), "-T", "{rev}\n"])
+    revision_number = int(s)
+    return revision_number
+
+
 # Returns a list of [(int, str)] tuples containing the local revision number and description, respectively,
 # of all outgoing changes. First one in the list is the oldest change, last one the youngest (tip).
 def get_outgoing_changes() -> list:
@@ -165,7 +172,8 @@ parser.add_argument("-o", "--overwrite-last", dest="overwrite_last_webrev", defa
                     action="store_true")
 
 parser.add_argument("-n", "--number", dest="webrev_number", default=-1, type=int,
-                    help="[Webrev mode]: Specify exactly the number of webrev to create. Will overwrite existing webrev of that number.")
+                    help="[Webrev mode]: Specify exactly the number of webrev to create. "
+                         "Will overwrite existing webrev of that number.")
 
 parser.add_argument("-u", "--upload", dest="upload", default=False, help="Upload to remote location (see --upload-url)",
                     action="store_true")
@@ -222,6 +230,7 @@ if ":" not in upload_url:
 # ---
 
 # sanity: some args only sense in webrev mode
+
 if args.patch_mode:
     if args.overwrite_last_webrev:
         sys.exit("Option -o|--overwrite-last-webrev only supported in webrev mode.")
@@ -229,12 +238,6 @@ if args.patch_mode:
         sys.exit("Option -d|--delta only supported in webrev mode.")
     if args.webrev_number != -1:
         sys.exit("Option -n|--number only supported in webrev mode.")
-
-# check that all changes are qrefresh'ed
-if run_command_and_return_stdout(['hg', 'diff']) != '':
-    sys.exit('There are open changes in the workspace. Please commit/qrefresh first.')
-else:
-    verbose('No outstanding changes in workspace - OK.')
 
 # Now find out the outgoing changes and put them into a list:
 # [(revision, description), (revision, description), ...]
@@ -245,21 +248,21 @@ else:
     trc("Found {0} outgoing changes - oldest to youngest (tip):.".format(len(outgoing_changes)))
     print(outgoing_changes)
 
+if len(outgoing_changes) > 1:
+    trc("Found multiple outgoing changes. Will only produce patch for the topmost one (" +
+        outgoing_changes[-1][1] + ")")
 
-# Patch-Mode, Webrev-Mode: Need 1 outgoing change.
-# Delta-Webrev-Mode: need 2 outgoing changes.
-if args.patch_mode:
-    if len(outgoing_changes) > 1:
-        trc("Found multiple outgoing changes. Will only produce patch for the topmost one (" +
-            outgoing_changes[-1][1] + ")")
-else:
+# check that all changes are qrefresh'ed
+if run_command_and_return_stdout(['hg', 'diff']) != '':
     if not args.delta_mode:
-        if len(outgoing_changes) > 1:
-            trc("Found multiple outgoing changes. Will produce webrev for the topmost one (" +
-                outgoing_changes[-1][1] + ")")
+        sys.exit('There are open changes in the workspace. Please commit/qrefresh first.')
     else:
-        if len(outgoing_changes) != 2:
-            sys.exit('We expect exactly two outgoing changes in delta webrev mode.')
+        verbose('Found outstanding changes which will be base for the delta part. Ok.')
+else:
+    if args.delta_mode:
+        sys.exit('Delta mode given but there are no open changes in the workspace?')
+    else:
+        verbose('No outstanding changes in workspace - OK.')
 
 # name of patch is generated from the first line of the mercurial change description of the outgoing change. In delta
 # mode, from the first line of the mercurial change description of the base change.
@@ -270,6 +273,13 @@ if patch_name is None:
 # Sanitize patch name
 patch_name = sanitize_patch_name(patch_name)
 trc("Patch name is " + patch_name)
+
+patch_rev = outgoing_changes[-1][0]
+trc("Patch rev is " + str(patch_rev))
+
+# We also may need parent rev
+parent_patch_rev = get_parent_rev_for_rev(patch_rev)
+verbose("Parent patch rev is " + str(parent_patch_rev))
 
 patch_directory = export_dir + '/' + patch_name
 pathlib.Path(patch_directory).mkdir(parents=True, exist_ok=True)
@@ -284,7 +294,7 @@ if args.patch_mode:
         user_confirm('Remove pre-existing patch: ' + patch_file_path)
         pathlib.Path(patch_file_path).unlink()
         trc("Removed pre-existing patch at " + patch_file_path + ".")
-    run_command_and_return_stdout(["hg", "export", "-o", patch_file_path])
+    run_command_and_return_stdout(["hg", "export", "-r", str(patch_rev), "-o", patch_file_path])
     trc("Created new patch at " + patch_file_path + " - OK.")
 
 else:
@@ -320,33 +330,34 @@ else:
             remove_directory(delta_webrev_dir_path)
 
     # Now create the new webrev:
+    # Note: ideosyncracy of webrev.ksh: -r means the revision we compare against, not the revision
+    # we describe.
     if not args.delta_mode:
         # In normal (non-delta) mode, we run webrev.ksh.
-        if len(outgoing_changes) == 1:
-            # if we have only one outgoing change, we just call webrev without revision
-            run_command_and_return_stdout(["ksh", webrev_script_location, "-o", webrev_dir_path])
-
-        else:
-            # if there are more than one outgoing change, we only want a webrev for the latest one, so
-            # we have to specify the revision with -r. Note however that webrev wants the *parent* revision
-            run_command_and_return_stdout(["ksh", webrev_script_location, "-o", webrev_dir_path, "-r",
-                                          str(outgoing_changes[-2][0])])
+        run_command_and_return_stdout(["ksh", webrev_script_location,
+                                       "-r", str(parent_patch_rev),
+                                       "-o", webrev_dir_path])
         trc("Created new webrev at " + webrev_dir_path + " - OK.")
 
     else:
         # In delta mode, we create two webrevs, one for the delta part, one for the full part.
-        # (Note: to keep coding simple here I insist on exactly two outgoing changes, see above)
-        if len(outgoing_changes) != 2:
-            sys.exit("Expecting exactly two outgoing changes.")
+        # The delta part is the uncommitted changes.
+        #
+        # To generate the delta part, we call webrev with -r <patch> which gives us just the
+        # uncommitted workspace changes.
+        #
+        # Then, to generate base+delta, we call webrev with -r <parent patch> which will give
+        # us a webrev containing the tip out change (base) plus the uncommitted changes (delta)
+        #
 
-        # Delta part: use -r <rev> where revision is the parent, which in this case is the base part.
-        run_command_and_return_stdout(["ksh", webrev_script_location, "-o", delta_webrev_dir_path, "-r",
-                                       str(outgoing_changes[0][0])])
+        # delta part
+        run_command_and_return_stdout(["ksh", webrev_script_location, "-r", str(patch_rev),
+                                       "-o", delta_webrev_dir_path])
         trc("Created new delta webrev at " + delta_webrev_dir_path + " - OK.")
 
-        # Full part: just run webrev normally without specifying a revision. It will pick up all outgoing changes,
-        # which are two (base + delta)
-        run_command_and_return_stdout(["ksh", webrev_script_location, "-o", webrev_dir_path])
+        # Full part
+        run_command_and_return_stdout(["ksh", webrev_script_location, "-r", str(parent_patch_rev),
+                                       "-o", webrev_dir_path])
         trc("Created full webrev (base + delta) at " + webrev_dir_path + " - OK.")
 
 # upload to remote: For simplicity, I just transfer the whole patch dir, regardless if that transfers
