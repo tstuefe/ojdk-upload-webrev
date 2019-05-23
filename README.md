@@ -59,11 +59,12 @@ upload-webrev.py -d -u --overwrite-last --upload-url thomas@cr.openjdk.java.net:
 ## Basics
 
 This tool knows two modes:
-- Webrev Mode (default): a webrev is generated into the export directory.
-    - Webrevs are numbered (webrev_<n>, webrev_<n+1>). Each time the script is run a new webrev is created.
-    - Exactly one outgoing change is expected, for which the webrev is generated
-    - Delta mode (`-d` or `--delta`): two outgoing changes are expected, base and delta, for which two webrevs are generated.
-- Patch Mode (`-p` resp. `--patch-mode`): A simple patch is generated.
+- Webrev Mode (default): a webrev is generated into the export directory and optionally uploaded to the remote site.
+    - Webrevs are numbered (webrev_<n>, webrev_<n+1>). Each time the script is run a new webrev is created. This can be overridden by specifying (`-o` or `--overwrite-last`) which causes the script to overwrite the webrev with the highest number.
+    - The webrev is generated for the outgoing change (`hg out`) or, if there are multiple outgoing changes, the top change. If you use Mercurial queues, this will be the change at the top of the patch queue.
+    - In delta mode (`-d` or `--delta`), a webrev is generated for the uncommitted diff (the delta webrev) and a full webrev is generated for the top outgoing change including the uncommitted diff (the full webrev).
+
+- Beside Webrev Mode, there is a simple Patch Mode (`-p` resp. `--patch-mode`), which generates a simple patch file. No numbering scheme is used.
 
 ## Directory setup
 
@@ -106,10 +107,17 @@ python3 upload-patch.py
   generates a numbered webrev from the outgoing change.
 
 ```
-python3 upload-patch.py -vp
+python3 upload-patch.py -u
 ```
 
-  generates a patch file from the outgoing change, verbose mode.
+  generates a numbered webrev from the outgoing change and uploads it to the remote site.
+
+
+```
+python3 upload-patch.py -vpu
+```
+
+  generates a patch file from the outgoing change, verbose mode, and uploads it to the remote site.
 
 ```
 python3 upload-patch.py -u --upload-url thomas@cr.openjdk.java.net:my-webrevs
