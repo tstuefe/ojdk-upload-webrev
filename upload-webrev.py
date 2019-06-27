@@ -117,7 +117,7 @@ def get_outgoing_changes() -> list:
 # build up a patch name from a patch description text which may contain spaces, colons and so on.
 # The returned name shall have no space.
 def sanitize_patch_name(dirty_name: str) -> str:
-    return dirty_name.replace(' ', '-').replace(':', '-')
+    return dirty_name.replace(' ', '-').replace(':', '-').replace('/', '-').replace('[', '-').replace(']', '-')
 
 
 parser = argparse.ArgumentParser(
